@@ -4,8 +4,9 @@
   "description": "A real-time collaborative drawing application using Socket.IO and Canvas API",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "start": "node server.js",
+  "dev": "nodemon server.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
