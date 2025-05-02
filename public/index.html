@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collaborative Whiteboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="tools">
+      <div class="color-picker-container">
+        <label for="color-picker">Color:</label>
+        <input type="color" id="color-picker" value="#000000">
+      </div>
+      <div class="brush-size-container">
+        <label for="brush-size">Size:</label>
+        <input type="range" id="brush-size" min="1" max="50" value="5">
+        <span id="brush-size-text">5px</span>
+      </div>
+      <button id="clear-button">Clear Canvas</button>
+    </div>
+    <canvas id="whiteboard"></canvas>
+    <div class="user-count">
+      <span id="user-count">0</span> users online
+    </div>
+  </div>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
