@@ -1,10 +1,33 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const socket = io();
+  let socket;
+  let username = null;
+  let token = null;
+
+  // Auth elements
+  const authModal = document.getElementById("auth-modal");
+  const authForm = document.getElementById("auth-form");
+  const usernameInput = document.getElementById("username");
+  const passwordInput = document.getElementById("password");
+  const submitBtn = document.getElementById("submit-btn");
+  const toggleAuth = document.getElementById("toggle-auth");
+  const toggleLink = document.getElementById("toggle-link");
+  const modalTitle = document.getElementById("modal-title");
+
+  // Main app elements
+  const container = document.querySelector(".container");
+  const currentUserSpan = document.getElementById("current-user");
+  const logoutBtn = document.getElementById("logout-btn");
+  const statusMessages = document.getElementById("status-messages");
 
   // Canvas setup
   const canvas = document.getElementById("whiteboard");
   const context = canvas.getContext("2d");
 
+  // Drawing history for undo/redo
+  const drawingHistory = [];
+  let historyStep = -1;
+
+  // Set canvas size
   function resizeCanvas() {
     canvas.width = canvas.offsetWidth;
     canvas.height = window.innerHeight * 0.7;
@@ -23,12 +46,193 @@ document.addEventListener("DOMContentLoaded", () => {
   const brushSize = document.getElementById("brush-size");
   const brushSizeText = document.getElementById("brush-size-text");
   const clearButton = document.getElementById("clear-button");
+  const undoButton = document.getElementById("undo-button");
+  const redoButton = document.getElementById("redo-button");
   const userCountSpan = document.getElementById("user-count");
 
-  // Update brush size text
-  brushSize.addEventListener("input", () => {
-    brushSizeText.textContent = `${brushSize.value}px`;
+  // Save canvas state to history
+  function saveState() {
+    historyStep++;
+    if (historyStep < drawingHistory.length) {
+      drawingHistory.length = historyStep;
+    }
+    drawingHistory.push(canvas.toDataURL());
+  }
+
+  // Undo/Redo functions
+  function undo() {
+    if (historyStep > 0) {
+      historyStep--;
+      restoreState(historyStep);
+    }
+  }
+
+  function redo() {
+    if (historyStep < drawingHistory.length - 1) {
+      historyStep++;
+      restoreState(historyStep);
+    }
+  }
+
+  function restoreState(step) {
+    let img = new Image();
+    img.src = drawingHistory[step];
+    img.onload = () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(img, 0, 0);
+    };
+  }
+
+  // Authentication toggle
+  let isLogin = true;
+  toggleLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    isLogin = !isLogin;
+    if (isLogin) {
+      modalTitle.textContent = "Login";
+      submitBtn.textContent = "Login";
+      toggleAuth.innerHTML =
+        'Don\'t have an account? <a href="#" id="toggle-link">Register</a>';
+    } else {
+      modalTitle.textContent = "Register";
+      submitBtn.textContent = "Register";
+      toggleAuth.innerHTML =
+        'Already have an account? <a href="#" id="toggle-link">Login</a>';
+    }
   });
+
+  // Authentication form submit
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: usernameInput.value,
+          password: passwordInput.value,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        token = data.token;
+        username = data.username;
+        startApp();
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      console.error("Auth error:", error);
+      alert("Authentication failed");
+    }
+  });
+
+  // Start the app after authentication
+  function startApp() {
+    authModal.style.display = "none";
+    container.style.display = "flex";
+    currentUserSpan.textContent = `User: ${username}`;
+
+    // Connect to Socket.io
+    socket = io();
+
+    // Join the room
+    socket.emit("join", { username, token });
+
+    // Setup event listeners
+    setupEventListeners();
+    setupSocketListeners();
+
+    // Save initial canvas state
+    saveState();
+  }
+
+  // Logout
+  logoutBtn.addEventListener("click", () => {
+    container.style.display = "none";
+    authModal.style.display = "flex";
+    socket.disconnect();
+    token = null;
+    username = null;
+  });
+
+  // Setup all event listeners
+  function setupEventListeners() {
+    brushSize.addEventListener("input", () => {
+      brushSizeText.textContent = `${brushSize.value}px`;
+    });
+
+    canvas.addEventListener("mousedown", startDrawing);
+    canvas.addEventListener("mousemove", draw);
+    canvas.addEventListener("mouseup", stopDrawing);
+    canvas.addEventListener("mouseout", stopDrawing);
+
+    // Touch support
+    canvas.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const mouseEvent = new MouseEvent("mousedown", {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+      });
+      canvas.dispatchEvent(mouseEvent);
+    });
+
+    canvas.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const mouseEvent = new MouseEvent("mousemove", {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+      });
+      canvas.dispatchEvent(mouseEvent);
+    });
+
+    canvas.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      const mouseEvent = new MouseEvent("mouseup");
+      canvas.dispatchEvent(mouseEvent);
+    });
+
+    clearButton.addEventListener("click", () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      socket.emit("clear");
+      saveState();
+    });
+
+    undoButton.addEventListener("click", undo);
+    redoButton.addEventListener("click", redo);
+  }
+
+  // Setup socket listeners
+  function setupSocketListeners() {
+    socket.on("draw", (data) => {
+      drawLine(data);
+    });
+
+    socket.on("clear", () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      saveState();
+    });
+
+    socket.on("userCount", (count) => {
+      userCountSpan.textContent = count;
+    });
+
+    socket.on("userJoined", (message) => {
+      showStatusMessage(message);
+    });
+
+    socket.on("userLeft", (message) => {
+      showStatusMessage(message);
+    });
+  }
 
   // Drawing functions
   function startDrawing(e) {
@@ -50,8 +254,6 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     drawLine(drawingData);
-
-    // Emit drawing data to server
     socket.emit("draw", drawingData);
 
     [lastX, lastY] = [x, y];
@@ -59,6 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function stopDrawing() {
     isDrawing = false;
+    saveState();
   }
 
   function getCoordinates(e) {
@@ -78,55 +281,10 @@ document.addEventListener("DOMContentLoaded", () => {
     context.stroke();
   }
 
-  // Event listeners for drawing
-  canvas.addEventListener("mousedown", startDrawing);
-  canvas.addEventListener("mousemove", draw);
-  canvas.addEventListener("mouseup", stopDrawing);
-  canvas.addEventListener("mouseout", stopDrawing);
-
-  // Touch support for mobile devices
-  canvas.addEventListener("touchstart", (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = new MouseEvent("mousedown", {
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-    });
-    canvas.dispatchEvent(mouseEvent);
-  });
-
-  canvas.addEventListener("touchmove", (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = new MouseEvent("mousemove", {
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-    });
-    canvas.dispatchEvent(mouseEvent);
-  });
-
-  canvas.addEventListener("touchend", (e) => {
-    e.preventDefault();
-    const mouseEvent = new MouseEvent("mouseup");
-    canvas.dispatchEvent(mouseEvent);
-  });
-
-  // Clear canvas
-  clearButton.addEventListener("click", () => {
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    socket.emit("clear");
-  });
-
-  // Socket.io event handlers
-  socket.on("draw", (data) => {
-    drawLine(data);
-  });
-
-  socket.on("clear", () => {
-    context.clearRect(0, 0, canvas.width, canvas.height);
-  });
-
-  socket.on("userCount", (count) => {
-    userCountSpan.textContent = count;
-  });
+  function showStatusMessage(message) {
+    statusMessages.textContent = message;
+    setTimeout(() => {
+      statusMessages.textContent = "";
+    }, 3000);
+  }
 });
