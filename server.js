@@ -8,12 +8,20 @@ const app = express();
 app.use(cors());
 app.use(express.static(path.join(__dirname, "public")));
 
+// Create HTTP server and socket.io instance
 const server = http.createServer(app);
 const io = socketIo(server);
+
+// Track number of connected users
+let userCount = 0;
 
 // Socket.io connection handling
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
+
+  // Increment user count and broadcast to all clients
+  userCount++;
+  io.emit("userCount", userCount);
 
   // Handle drawing event
   socket.on("draw", (data) => {
@@ -21,9 +29,18 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("draw", data);
   });
 
+  // Handle clear canvas event
+  socket.on("clear", () => {
+    socket.broadcast.emit("clear");
+  });
+
   // Handle user disconnection
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
+
+    // Decrement user count and broadcast to all clients
+    userCount--;
+    io.emit("userCount", userCount);
   });
 });
 
