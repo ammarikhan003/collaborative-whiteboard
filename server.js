@@ -3,14 +3,29 @@ const http = require("http");
 const socketIo = require("socket.io");
 const path = require("path");
 const cors = require("cors");
+const mongoose = require("mongoose");
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
+
+// Connect to MongoDB
+mongoose
+  .connect("mongodb://localhost:27017/collaborative-whiteboard", {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("MongoDB Connected"))
+  .catch((err) => console.log(err));
 
 // Create HTTP server and socket.io instance
 const server = http.createServer(app);
 const io = socketIo(server);
+
+// Authentication routes
+const authRoutes = require("./routes/auth");
+app.use("/api/auth", authRoutes);
 
 // Track number of connected users
 let userCount = 0;
@@ -19,14 +34,19 @@ let userCount = 0;
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
-  // Increment user count and broadcast to all clients
-  userCount++;
-  io.emit("userCount", userCount);
+  // Handle user joining
+  socket.on("join", (userData) => {
+    socket.username = userData.username;
+    userCount++;
+    io.emit("userCount", userCount);
+    io.emit("userJoined", `${userData.username} joined`);
+  });
 
   // Handle drawing event
   socket.on("draw", (data) => {
-    // Broadcast the drawing data to all other clients
-    socket.broadcast.emit("draw", data);
+    // Add username to drawing data
+    const drawingWithUser = { ...data, username: socket.username };
+    socket.broadcast.emit("draw", drawingWithUser);
   });
 
   // Handle clear canvas event
@@ -38,15 +58,12 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
 
-    // Decrement user count and broadcast to all clients
-    userCount--;
-    io.emit("userCount", userCount);
+    if (socket.username) {
+      userCount--;
+      io.emit("userCount", userCount);
+      io.emit("userLeft", `${socket.username} left`);
+    }
   });
-});
-
-// Serve main page
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // Start server
